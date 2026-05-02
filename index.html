@@ -550,6 +550,13 @@
             <span class="config-label" style="min-width:0; margin:0; font-size:12px; color:var(--text-muted);">Eşit Sayıda Oyuncu</span>
           </label>
         </div>
+        <div class="config-row" style="margin-top:4px;">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none;">
+            <input type="checkbox" id="addBot"
+              style="width:14px; height:14px; accent-color:var(--gold); cursor:pointer;">
+            <span class="config-label" style="min-width:0; margin:0; font-size:12px; color:var(--text-muted);">Bot Ekle</span>
+          </label>
+        </div>
       </div>
 
       <!-- OYUNCU HAVUZU -->
@@ -804,6 +811,14 @@ document.getElementById('teamCount').addEventListener('change', updateRequired);
 document.getElementById('teamSize').addEventListener('change', updateRequired);
 
 /* ── TEAM BUILDING ALGORITHM ──────────────────────── */
+const BOT_TYPES = [
+  { nick: 'Easy Zeus',      rating: 10, isBot: true },
+  { nick: 'Medium Zeus',    rating: 20, isBot: true },
+  { nick: 'Hard Zeus',      rating: 30, isBot: true },
+  { nick: 'Very Hard Zeus', rating: 40, isBot: true },
+];
+const BOT_AVATAR = 'https://forum.strategyturk.com/images/avatars/Age%20of%20Mythology/Zeus.png';
+
 function lpt(teams, players) {
   [...players].sort((a, b) => b.rating - a.rating).forEach(p => {
     const minTeam = teams.reduce((a, b) => a.total <= b.total ? a : b);
@@ -812,10 +827,17 @@ function lpt(teams, players) {
   });
 }
 
+function bestBotForDiff(diff) {
+  // Farkı kapatacak en iyi botu seç (farka en yakın ama geçmeyen)
+  const sorted = [...BOT_TYPES].sort((a, b) => b.rating - a.rating);
+  return sorted.find(b => b.rating <= diff) || BOT_TYPES[0];
+}
+
 function buildTeams() {
   const tc = parseInt(document.getElementById('teamCount').value);
   const ts = parseInt(document.getElementById('teamSize').value);
   const equalTeams = document.getElementById('equalTeams').checked;
+  const addBot = document.getElementById('addBot').checked;
   const required = tc * ts;
 
   const selectedIndices = [];
@@ -833,6 +855,21 @@ function buildTeams() {
 
   const teams = Array.from({ length: tc }, () => ({ players: [], total: 0 }));
   lpt(teams, selected);
+
+  // Bot Ekle: sadece 2 takım desteklenir (fark mantıklı şekilde hesaplanabilir)
+  if (addBot && tc === 2) {
+    let diff = Math.abs(teams[0].total - teams[1].total);
+    const weakTeamIdx = teams[0].total < teams[1].total ? 0 : 1;
+    // Farkı kapatana kadar bot ekle
+    while (diff > 0) {
+      const bot = bestBotForDiff(diff);
+      teams[weakTeamIdx].players.push({ ...bot });
+      teams[weakTeamIdx].total += bot.rating;
+      diff -= bot.rating;
+      if (diff <= 0) break;
+    }
+  }
+
   renderResult(teams);
 }
 
@@ -877,10 +914,13 @@ function renderResult(teams) {
     `;
     sorted.forEach((p, ri) => {
       const pct = team.total > 0 ? Math.round((p.rating / team.total) * 100) : 0;
+      const tierOrAvatar = p.isBot
+        ? `<img src="${BOT_AVATAR}" alt="Bot" style="width:20px;height:20px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1px solid #555;">`
+        : `<div class="rating-tier ${getTier(p.rating)}" style="width:8px;height:8px;border-radius:50%;flex-shrink:0;"></div>`;
       html += `
-        <div class="member-row" style="border-left-color: ${color.color}40;">
+        <div class="member-row" style="border-left-color: ${color.color}40; ${p.isBot ? 'opacity:0.8;' : ''}">
           <span class="member-rank">${ri + 1}</span>
-          <div class="rating-tier ${getTier(p.rating)}" style="width:8px;height:8px;border-radius:50%;flex-shrink:0;"></div>
+          ${tierOrAvatar}
           <span class="member-nick">${p.nick}</span>
           <span style="font-size:10px; color:var(--text-dim); margin-right:4px;">${pct}%</span>
           <span class="member-rating" style="background: ${color.color}22; color:${color.color};">${p.rating}</span>
