@@ -957,45 +957,70 @@ function renderResult(teams) {
 function shuffleTeams() {
   if (!currentTeams) return;
 
-  // Derin kopya üzerinde çalış
   const teams = JSON.parse(JSON.stringify(currentTeams));
   const tc = teams.length;
+  const addBot = document.getElementById('addBot').checked;
 
-  // Eşit puanlı oyuncu çiftlerini bul (farklı takımlardan)
-  const swappable = []; // [{ti, pi, tj, pj}] — takım i'deki pi ile takım j'deki pj değiştirilebilir
+  // Bot Ekle aktifse önce botları sil ve toplamları güncelle
+  teams.forEach(t => {
+    const bots = t.players.filter(p => p.isBot);
+    bots.forEach(b => { t.total -= b.rating; });
+    t.players = t.players.filter(p => !p.isBot);
+  });
+
+  // Sadece gerçek oyuncuları takas et
+  const realPlayers = teams.map(t => [...t.players]);
+
+  const pairs = [];
   for (let ti = 0; ti < tc; ti++) {
     for (let tj = ti + 1; tj < tc; tj++) {
-      teams[ti].players.forEach((p, pi) => {
-        teams[tj].players.forEach((p2, pj) => {
-          if (p.rating === p2.rating && p.nick !== p2.nick) {
-            swappable.push({ ti, pi, tj, pj });
+      realPlayers[ti].forEach(pa => {
+        realPlayers[tj].forEach(pb => {
+          if (Math.abs(pa.rating - pb.rating) <= 40) {
+            pairs.push({ ti, tj, pa, pb });
           }
         });
       });
     }
   }
 
-  if (swappable.length === 0) return; // Eşit puanlı oyuncu yok, bir şey yapma
+  if (pairs.length > 0) {
+    const shuffledPairs = pairs.sort(() => Math.random() - 0.5);
+    const swapCount = Math.random() < 0.5 ? 1 : 2;
+    const usedNicks = new Set();
+    let swapsDone = 0;
 
-  // Rastgele sayıda takas yap (1 ile max arasında)
-  const swapCount = 1 + Math.floor(Math.random() * swappable.length);
+    for (const { ti, tj, pa, pb } of shuffledPairs) {
+      if (swapsDone >= swapCount) break;
+      if (usedNicks.has(pa.nick) || usedNicks.has(pb.nick)) continue;
 
-  // Swappable listesini karıştır ve ilk swapCount tanesini uygula
-  const shuffled = swappable.sort(() => Math.random() - 0.5).slice(0, swapCount);
+      const aiIdx = teams[ti].players.findIndex(p => p.nick === pa.nick);
+      const bjIdx = teams[tj].players.findIndex(p => p.nick === pb.nick);
+      if (aiIdx === -1 || bjIdx === -1) continue;
 
-  // Takasları uygula — aynı oyuncuyu iki kez takas etmemek için işaretleme yap
-  const usedSlots = new Set();
-  shuffled.forEach(({ ti, pi, tj, pj }) => {
-    const keyA = `${ti}-${pi}`, keyB = `${tj}-${pj}`;
-    if (usedSlots.has(keyA) || usedSlots.has(keyB)) return;
-    usedSlots.add(keyA);
-    usedSlots.add(keyB);
+      teams[ti].total = teams[ti].total - pa.rating + pb.rating;
+      teams[tj].total = teams[tj].total - pb.rating + pa.rating;
+      teams[ti].players[aiIdx] = pb;
+      teams[tj].players[bjIdx] = pa;
 
-    // Oyuncuları değiştir
-    const tmp = teams[ti].players[pi];
-    teams[ti].players[pi] = teams[tj].players[pj];
-    teams[tj].players[pj] = tmp;
-  });
+      usedNicks.add(pa.nick);
+      usedNicks.add(pb.nick);
+      swapsDone++;
+    }
+  }
+
+  // Bot Ekle aktifse yeni puan farkına göre botu yeniden ekle
+  if (addBot && tc === 2) {
+    let diff = Math.abs(teams[0].total - teams[1].total);
+    const weakTeamIdx = teams[0].total < teams[1].total ? 0 : 1;
+    while (diff > 0) {
+      const bot = bestBotForDiff(diff);
+      teams[weakTeamIdx].players.push({ ...bot });
+      teams[weakTeamIdx].total += bot.rating;
+      diff -= bot.rating;
+      if (diff <= 0) break;
+    }
+  }
 
   renderResult(teams);
 }
