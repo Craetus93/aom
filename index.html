@@ -678,7 +678,7 @@ function renderPlayers() {
       card.innerHTML = `
         <div class="rating-tier ${getTier(p.rating)}" id="tier${i}"></div>
         <span class="player-nick" style="color:var(--text);">${p.nick}</span>
-        <input type="number" value="${p.rating}" min="0" max="999"
+        <input type="number" value="${p.rating}" min="0" max="999" step="5"
           style="width:62px; background:#1e1e1e; color:var(--gold); border:1px solid var(--border-dark);
                  padding:3px 6px; border-radius:2px; font-size:12px; font-family:'Roboto Condensed',sans-serif;
                  font-weight:900; text-align:center; outline:none;"
