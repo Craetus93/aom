@@ -644,11 +644,16 @@ const TEAM_COLORS = [
 ];
 
 function getTier(rating) {
-  if (rating >= 120) return 'tier-s';
-  if (rating >= 80)  return 'tier-a';
-  if (rating >= 60)  return 'tier-b';
-  if (rating >= 40)  return 'tier-c';
-  if (rating >= 20)  return 'tier-d';
+  const ratings = PLAYERS.map(p => p.rating);
+  const min = Math.min(...ratings);
+  const max = Math.max(...ratings);
+  const range = max - min || 1;
+  const pct = (rating - min) / range; // 0.0 → 1.0
+  if (pct >= 0.83) return 'tier-s';
+  if (pct >= 0.66) return 'tier-a';
+  if (pct >= 0.50) return 'tier-b';
+  if (pct >= 0.33) return 'tier-c';
+  if (pct >= 0.16) return 'tier-d';
   return 'tier-e';
 }
 
@@ -940,6 +945,7 @@ function renderResult(teams) {
   html += `
     <div class="balance-bar-wrap">
       <button class="btn-small btn-gold" onclick="shuffleTeams()" style="padding:4px 10px; white-space:nowrap;">🔀 Karıştır</button>
+      <button class="btn-small" id="shareBtn" onclick="sharePanel()" style="padding:4px 10px; white-space:nowrap; display:none;">📋 Paylaş</button>
       <div class="balance-bar">
         <div class="balance-fill" style="width:${balanceScore}%; background: linear-gradient(90deg, ${balanceColor}, ${balanceColor}bb);"></div>
       </div>
@@ -1025,13 +1031,216 @@ function shuffleTeams() {
   renderResult(teams);
 }
 
+/* ── PAYLAŞ ───────────────────────────────────────── */
+async function sharePanel() {
+  if (!currentTeams) return;
+  const btn = document.getElementById('shareBtn');
+  btn.textContent = '⏳ Kopyalanıyor...';
+  btn.disabled = true;
+
+  try {
+    const blob = await drawTeamsCanvas(currentTeams);
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      btn.textContent = '✅ Kopyalandı!';
+    } catch {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'takimlar.png'; a.click();
+      URL.revokeObjectURL(url);
+      btn.textContent = '📋 Paylaş';
+    }
+  } catch(e) {
+    btn.textContent = '❌ Hata';
+  }
+  setTimeout(() => { btn.textContent = '📋 Paylaş'; btn.disabled = false; }, 2000);
+}
+
+function drawTeamsCanvas(teams) {
+  return new Promise(resolve => {
+    const S = 2;
+    const tc = teams.length;
+    const COLS = 2;
+    const ROWS = Math.ceil(tc / COLS);
+    const COL_W  = 380;
+    const W      = COL_W * COLS;
+    const TITLE_H = 40;
+    const TEAM_H  = 44;
+    const ROW_H   = 36;
+    const PAD     = 10;
+    const BOT_H   = 46;
+    const maxRowsPerTeam = Math.max(...teams.map(t => t.players.length));
+    const BLOCK_H = TEAM_H + maxRowsPerTeam * ROW_H + PAD;
+    const H = TITLE_H + BLOCK_H * ROWS + BOT_H;
+
+    const C = document.createElement('canvas');
+    C.width  = W * S;
+    C.height = H * S;
+    const ctx = C.getContext('2d');
+    ctx.scale(S, S);
+
+    const COLORS = ['#e74c3c','#3498db','#2ecc71','#f39c12'];
+    const BG     = '#2F2F2F';
+    const BG2    = '#2D2D2D';
+    const SEP    = '#252525';
+    const MUTED  = '#888';
+    const DIM    = '#555';
+
+    function rRect(x, y, w, h, r, fill) {
+      ctx.beginPath();
+      ctx.moveTo(x+r, y);
+      ctx.lineTo(x+w-r, y); ctx.arcTo(x+w,y,x+w,y+r,r);
+      ctx.lineTo(x+w, y+h-r); ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
+      ctx.lineTo(x+r, y+h); ctx.arcTo(x,y+h,x,y+h-r,r);
+      ctx.lineTo(x, y+r); ctx.arcTo(x,y,x+r,y,r);
+      ctx.closePath();
+      ctx.fillStyle = fill; ctx.fill();
+    }
+
+    // Arka plan
+    ctx.fillStyle = BG;
+    ctx.fillRect(0, 0, W, H);
+
+    // Başlık
+    const tg = ctx.createLinearGradient(0,0,W,0);
+    tg.addColorStop(0,'#c8ae5e'); tg.addColorStop(0.4,'#b69d4b'); tg.addColorStop(1,'#8a7535');
+    ctx.fillStyle = tg; ctx.fillRect(0, 0, W, TITLE_H);
+    const ig = ctx.createLinearGradient(0,0,0,TITLE_H);
+    ig.addColorStop(0,'rgba(17,17,17,0.27)'); ig.addColorStop(0.5,'rgba(0,0,0,0)'); ig.addColorStop(1,'rgba(17,17,17,0.27)');
+    ctx.fillStyle = ig; ctx.fillRect(0,0,W,TITLE_H);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 13px "Roboto Condensed", Roboto, Tahoma, sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('\uD83C\uDFC6  OLU\u015eTURULAN TAKIMLAR', 14, TITLE_H/2);
+
+    // Takımlar
+    teams.forEach((team, ti) => {
+      const col     = COLORS[ti];
+      const gridCol = ti % COLS;
+      const gridRow = Math.floor(ti / COLS);
+      const cx = gridCol * COL_W;
+      const cy = TITLE_H + gridRow * BLOCK_H;
+      const players = [...team.players].sort((a,b) => b.rating - a.rating);
+
+      // Ayırıcılar
+      if (gridCol === 1) { ctx.fillStyle = SEP; ctx.fillRect(cx, cy, 1, BLOCK_H); }
+      if (gridRow > 0)   { ctx.fillStyle = SEP; ctx.fillRect(cx, cy, COL_W, 1); }
+
+      // Takım başlığı
+      const hg = ctx.createLinearGradient(cx, 0, cx+COL_W, 0);
+      hg.addColorStop(0, col+'55'); hg.addColorStop(1, BG);
+      ctx.fillStyle = hg; ctx.fillRect(cx, cy, COL_W, TEAM_H);
+      ctx.fillStyle = col; ctx.fillRect(cx, cy, 3, TEAM_H);
+      ctx.beginPath(); ctx.arc(cx+18, cy+TEAM_H/2, 5, 0, Math.PI*2);
+      ctx.fillStyle = col; ctx.fill();
+      ctx.fillStyle = col;
+      ctx.font = 'bold 14px "Roboto Condensed", Roboto, Tahoma, sans-serif';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('TAKIM ' + (ti+1), cx+32, cy+TEAM_H/2);
+      ctx.fillStyle = MUTED;
+      ctx.font = '11px Roboto, Tahoma, sans-serif';
+      const totLabel = 'Toplam: ';
+      const totLabelW = ctx.measureText(totLabel).width;
+      ctx.fillText(totLabel, cx+COL_W-80, cy+TEAM_H/2);
+      ctx.fillStyle = col;
+      ctx.font = 'bold 13px "Roboto Condensed", Roboto, Tahoma, sans-serif';
+      ctx.fillText(String(team.total), cx+COL_W-80+totLabelW, cy+TEAM_H/2);
+
+      // Oyuncu satırları
+      players.forEach((p, ri) => {
+        const ry = cy + TEAM_H + ri * ROW_H;
+        ctx.fillStyle = ri%2===0 ? BG2 : BG;
+        ctx.fillRect(cx, ry, COL_W, ROW_H);
+        ctx.fillStyle = col+'66'; ctx.fillRect(cx, ry, 3, ROW_H);
+        ctx.fillStyle = DIM;
+        ctx.font = '10px Roboto, Tahoma, sans-serif';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(ri+1, cx+10, ry+ROW_H/2);
+
+        if (p.isBot) {
+          rRect(cx+22, ry+ROW_H/2-7, 26, 14, 3, '#444');
+          ctx.fillStyle = '#aaa';
+          ctx.font = 'bold 8px Roboto, Tahoma, sans-serif';
+          ctx.fillText('BOT', cx+25, ry+ROW_H/2);
+        } else {
+          ctx.beginPath(); ctx.arc(cx+30, ry+ROW_H/2, 4, 0, Math.PI*2);
+          ctx.fillStyle = getTierColor(p.rating); ctx.fill();
+        }
+
+        ctx.fillStyle = '#DDD';
+        ctx.font = 'bold 13px Roboto, Tahoma, sans-serif';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(p.nick, cx+42, ry+ROW_H/2);
+
+        const rStr = String(p.rating);
+        ctx.font = 'bold 12px "Roboto Condensed", Roboto, Tahoma, sans-serif';
+        const badgeW = Math.max(32, ctx.measureText(rStr).width+16);
+        rRect(cx+COL_W-badgeW-10, ry+ROW_H/2-10, badgeW, 20, 10, col+'33');
+        ctx.fillStyle = col;
+        ctx.textAlign = 'center';
+        ctx.fillText(rStr, cx+COL_W-10-badgeW/2, ry+ROW_H/2);
+        ctx.textAlign = 'left';
+      });
+    });
+
+    // Alt çubuk
+    const by = H - BOT_H;
+    ctx.fillStyle = '#1e1e1e'; ctx.fillRect(0, by, W, BOT_H);
+    ctx.fillStyle = '#3A3A3A'; ctx.fillRect(0, by, W, 1);
+
+    const totals = teams.map(t=>t.total);
+    const diff   = Math.max(...totals) - Math.min(...totals);
+    const score  = Math.max(0, 100 - Math.round((diff/300)*100));
+    const bColor = score>=80?'#2ecc71':score>=60?'#f39c12':'#e74c3c';
+
+    const barX=10, barY=by+17, barW=W/2-20, barH=8;
+    rRect(barX, barY, barW, barH, 4, '#2D2D2D');
+    rRect(barX, barY, barW*(score/100), barH, 4, bColor);
+
+    ctx.fillStyle = bColor;
+    ctx.font = 'bold 13px "Roboto Condensed", Roboto, Tahoma, sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'right';
+    ctx.fillText(score+'/100', W-10, by+32);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = MUTED;
+    ctx.font = '10px Roboto, Tahoma, sans-serif';
+    const pfLabel = 'Puan fark\u0131: ';
+    ctx.fillText(pfLabel, barX+barW+10, by+32);
+    ctx.fillStyle = bColor;
+    ctx.font = 'bold 10px Roboto, Tahoma, sans-serif';
+    ctx.fillText(String(diff), barX+barW+10+ctx.measureText(pfLabel).width, by+32);
+
+    let forzaTeam=-1, pierroTeam=-1;
+    teams.forEach((t,i)=>{ if(t.players.find(p=>p.nick==='Forza')) forzaTeam=i; if(t.players.find(p=>p.nick==='Pierro')) pierroTeam=i; });
+    if(forzaTeam!==-1 && pierroTeam!==-1 && forzaTeam!==pierroTeam){
+      ctx.fillStyle='#e74c3c';
+      ctx.font='10px Roboto, Tahoma, sans-serif';
+      ctx.textAlign='center';
+      ctx.fillText('\u26A1 Forza Effect aktif', W/2, by+25);
+      ctx.textAlign='left';
+    }
+
+    C.toBlob(resolve, 'image/png');
+  });
+}
+function getTierColor(rating) {
+  const ratings = PLAYERS.map(p=>p.rating);
+  const min=Math.min(...ratings), max=Math.max(...ratings);
+  const pct=(rating-min)/((max-min)||1);
+  if(pct>=0.83) return '#e74c3c';
+  if(pct>=0.66) return '#e67e22';
+  if(pct>=0.50) return '#f1c40f';
+  if(pct>=0.33) return '#2ecc71';
+  if(pct>=0.16) return '#3498db';
+  return '#95a5a6';
+}
+
 /* ── INIT ─────────────────────────────────────────── */
 const STORAGE_KEY = 'aom_takim_kurucu_players';
 
 function savePlayers() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(PLAYERS));
-  } catch(e) {}
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(PLAYERS)); } catch(e) {}
 }
 
 function loadPlayers() {
